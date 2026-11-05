@@ -1,0 +1,59 @@
+INCIDENT REPORT - Web Application Attack Activity, 15 March 2024
+
+1. EXECUTIVE SUMMARY
+
+On 15 March 2024, between 08:45 and 12:04 UTC, the web server came under several attacks from
+external IP addresses, mixed in with normal user traffic. Analysis of the decrypted access log
+identified three distinct attack types: brute-force password guessing against the login pages
+(/login, /admin/login, /api/login, /wp-login.php), SQL injection against the search, product,
+login and API endpoints (/search, /products, /login, /api/items), and directory traversal against
+the file-serving endpoints (/download, /static, /files, /img, /view) aimed at sensitive system
+files such as /etc/passwd and /etc/shadow. The main attackers used automated tools
+(python-requests, Hydra, sqlmap, Nikto). One IP (141.98.10.33) used all three techniques. Some
+payloads drew worrying responses: SQL injection requests returned HTTP 500 (the database query
+broke) and HTTP 200 (the payload may have been accepted), and one traversal request for
+/etc/hosts returned HTTP 200. Overall severity is HIGH. No successful login was confirmed, but
+the 200/500 responses suggest the application may be vulnerable to SQL injection and file
+disclosure, and these need urgent verification.
+
+2. ATTACK SUMMARY
+
+Primary attacker per attack type:
+
+Attack Type          | Attacker IP    | First Seen                 | Last Seen                  | Attempts
+---------------------|----------------|----------------------------|----------------------------|---------
+Brute Force          | 203.0.113.42   | 15/Mar/2024:08:45:00 +0000 | 15/Mar/2024:08:45:33 +0000 | 12
+SQL Injection        | 51.77.72.9     | 15/Mar/2024:09:10:05 +0000 | 15/Mar/2024:09:15:05 +0000 | 6
+Directory Traversal  | 88.198.50.20   | 15/Mar/2024:09:40:00 +0000 | 15/Mar/2024:09:40:42 +0000 | 7
+
+Additional sources meeting the same detection rules:
+
+Attack Type          | Attacker IP    | First Seen                 | Last Seen                  | Attempts
+---------------------|----------------|----------------------------|----------------------------|---------
+Brute Force          | 100.64.8.9     | 15/Mar/2024:10:40:00 +0000 | 15/Mar/2024:11:40:00 +0000 | 7
+Brute Force          | 141.98.10.33   | 15/Mar/2024:12:00:00 +0000 | 15/Mar/2024:12:00:20 +0000 | 6
+Brute Force          | 198.51.100.77  | 15/Mar/2024:10:00:00 +0000 | 15/Mar/2024:10:01:20 +0000 | 5
+SQL Injection        | 185.220.101.5  | 15/Mar/2024:11:20:00 +0000 | 15/Mar/2024:11:21:00 +0000 | 2
+SQL Injection        | 141.98.10.33   | 15/Mar/2024:12:02:00 +0000 | 15/Mar/2024:12:04:00 +0000 | 2
+Directory Traversal  | 45.33.32.156   | 15/Mar/2024:11:30:00 +0000 | 15/Mar/2024:11:32:00 +0000 | 3
+Directory Traversal  | 141.98.10.33   | 15/Mar/2024:12:03:00 +0000 | 15/Mar/2024:12:03:00 +0000 | 1
+
+3. RECOMMENDED ACTIONS
+
+Brute Force:
+  Rate-limit and lock out login attempts (e.g. block an IP for 15 minutes after 5 failed logins,
+  using fail2ban or the application/WAF), and enable multi-factor authentication on all accounts,
+  especially /admin/login.
+
+SQL Injection:
+  Rewrite all database queries to use parameterised queries / prepared statements so user input
+  is never concatenated into SQL. Run the database account with least privilege (no DROP
+  permission), and verify the users and orders tables are intact.
+
+Directory Traversal:
+  Never build file paths from user input. Map requested files to an allow-list of IDs, or resolve
+  the canonical path and reject anything outside the intended directory. Also reject encoded
+  sequences such as %2e%2e%2f, which 77.88.55.60 attempted.
+
+General: block the listed attacker IPs at the firewall/WAF, and use ./detect.sh in monitoring
+(it exits 1 when an attack is found, so it can trigger alerts).
